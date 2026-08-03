@@ -21,5 +21,11 @@ const ticketValidation = [
 const commentValidation = [
   body('message').trim().isLength({ min: 1 }).withMessage('Message is required')
 ];
-
-module.exports = { signupValidation, loginValidation, ticketValidation, commentValidation };
+const assignValidation = [
+  body('assigned_agent_id')
+    .notEmpty()
+    .withMessage('Assigned Agent ID is required')
+    .isInt()
+    .withMessage('Assigned Agent ID must be a number')
+];
+module.exports = { signupValidation, loginValidation, ticketValidation, commentValidation, assignValidation };

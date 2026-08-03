@@ -1,5 +1,5 @@
 const { sendResponse } = require('../utils/response');
-const { getAllUsers, createUser, updateUser, deleteUser, getAllClients, createClient, updateClient, deleteClient } = require('../services/adminService');
+const { getAllUsers, createUser, updateUser, deleteUser, getAllClients, createClient, updateClient, deleteClient, getDashboardStats } = require('../services/adminService');
 
 const listUsers = async (req, res) => {
   try {
@@ -72,5 +72,27 @@ const deleteClientHandler = async (req, res) => {
     return sendResponse(res, 500, false, null, error.message || 'Failed to delete client');
   }
 };
+const dashboard = async (req, res) => {
+  try {
+    const stats = await getDashboardStats();
 
-module.exports = { listUsers, createUserHandler, updateUserHandler, deleteUserHandler, listClients, createClientHandler, updateClientHandler, deleteClientHandler };
+    return sendResponse(
+      res,
+      200,
+      true,
+      stats,
+      "Dashboard data fetched successfully"
+    );
+
+  } catch (error) {
+
+    return sendResponse(
+      res,
+      500,
+      false,
+      null,
+      error.message
+    );
+  }
+};
+module.exports = { listUsers, createUserHandler, updateUserHandler, deleteUserHandler, listClients, createClientHandler, updateClientHandler, deleteClientHandler, dashboard };

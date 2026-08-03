@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { listUsers, createUserHandler, updateUserHandler, deleteUserHandler, listClients, createClientHandler, updateClientHandler, deleteClientHandler } = require('../controllers/adminController');
+const { listUsers, createUserHandler, updateUserHandler, deleteUserHandler, listClients, createClientHandler, updateClientHandler, deleteClientHandler, dashboard} = require('../controllers/adminController');
 const { authenticate, authorize } = require('../middlewares/auth');
 const { signupValidation } = require('../validations/auth');
 const { validateRequest } = require('../middlewares/validate');
 
 router.get('/users', authenticate, authorize('admin'), listUsers);
+router.get('/dashboard', authenticate, authorize('admin'), dashboard);
 router.post('/users', authenticate, authorize('admin'), signupValidation, validateRequest, createUserHandler);
 router.put('/users/:id', authenticate, authorize('admin'), signupValidation, validateRequest, updateUserHandler);
 router.delete('/users/:id', authenticate, authorize('admin'), deleteUserHandler);

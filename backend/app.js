@@ -16,6 +16,7 @@ app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(morgan('combined'));
 app.use(express.json());
+app.use('/uploads', express.static('uploads'));
 
 const limiter = rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 900000),

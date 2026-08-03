@@ -1,5 +1,9 @@
-const app = require('./app');
 require('dotenv').config();
+
+const app = require('./app');
+
+// Start SLA Reminder Job
+require('./jobs/slaReminder');
 
 const PORT = process.env.PORT || 5000;
 

@@ -1,16 +1,117 @@
 const express = require('express');
 const router = express.Router();
-const { create, list, detail, reply, internalNote, status, assign } = require('../controllers/ticketController');
+const upload = require('../middlewares/upload');
+
+const {
+  create,
+  list,
+  detail,
+  reply,
+  internalNote,
+  status,
+  assign,
+  remove
+} = require('../controllers/ticketController');
+
 const { authenticate, authorize } = require('../middlewares/auth');
-const { ticketValidation, commentValidation } = require('../validations/auth');
+
+const {
+  ticketValidation,
+  commentValidation,
+  assignValidation
+} = require('../validations/auth');
+
 const { validateRequest } = require('../middlewares/validate');
 
-router.post('/', authenticate, authorize('client'), ticketValidation, validateRequest, create);
-router.get('/', authenticate, authorize('client', 'agent', 'admin'), list);
-router.get('/:id', authenticate, authorize('client', 'agent', 'admin'), detail);
-router.post('/:id/reply', authenticate, authorize('client', 'agent', 'admin'), commentValidation, validateRequest, reply);
-router.post('/:id/internal-note', authenticate, authorize('agent', 'admin'), commentValidation, validateRequest, internalNote);
-router.patch('/:id/status', authenticate, authorize('agent', 'admin'), commentValidation, validateRequest, status);
-router.patch('/:id/assign', authenticate, authorize('admin'), commentValidation, validateRequest, assign);
+// =============================
+// Create Ticket
+// =============================
+router.post(
+  '/',
+  authenticate,
+  authorize('client'),
+  upload.single('attachment'),
+  ticketValidation,
+  validateRequest,
+  create
+);
+
+// =============================
+// Get All Tickets
+// =============================
+router.get(
+  '/',
+  authenticate,
+  authorize('client', 'agent', 'admin'),
+  list
+);
+
+// =============================
+// Get Ticket Details
+// =============================
+router.get(
+  '/:id',
+  authenticate,
+  authorize('client', 'agent', 'admin'),
+  detail
+);
+
+// =============================
+// Reply to Ticket
+// =============================
+router.post(
+  '/:id/reply',
+  authenticate,
+  authorize('client', 'agent', 'admin'),
+  upload.single('attachment'),
+  commentValidation,
+  validateRequest,
+  reply
+);
+
+// =============================
+// Internal Note
+// =============================
+router.post(
+  '/:id/internal-note',
+  authenticate,
+  authorize('agent', 'admin'),
+  upload.single('attachment'),
+  commentValidation,
+  validateRequest,
+  internalNote
+);
+
+// =============================
+// Update Ticket Status
+// =============================
+router.patch(
+  '/:id/status',
+  authenticate,
+  authorize('agent', 'admin'),
+  status
+);
+
+// =============================
+// Assign Ticket
+// =============================
+router.patch(
+  '/:id/assign',
+  authenticate,
+  authorize('admin'),
+  assignValidation,
+  validateRequest,
+  assign
+);
+
+// =============================
+// Soft Delete Ticket
+// =============================
+router.delete(
+  '/:id',
+  authenticate,
+  authorize('admin'),
+  remove
+);
 
 module.exports = router;
