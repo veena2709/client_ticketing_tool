@@ -1,5 +1,5 @@
-const pool = require('../config/database');
-const { calculateSlaDueDate, formatSlaStatus } = require('../utils/sla');
+const pool = require("../config/database");
+const { calculateSlaDueDate, formatSlaStatus } = require("../utils/sla");
 
 // ==============================
 // Create Ticket
@@ -9,7 +9,7 @@ const createTicket = async ({
   description,
   priority,
   clientId,
-  attachmentPath = null
+  attachmentPath = null,
 }) => {
   const dueDate = calculateSlaDueDate(priority);
 
@@ -17,15 +17,7 @@ const createTicket = async ({
     `INSERT INTO tickets
     (title, description, attachment_path, priority, status, client_id, sla_due_date, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP())`,
-    [
-      title,
-      description,
-      attachmentPath,
-      priority,
-      'open',
-      clientId,
-      dueDate
-    ]
+    [title, description, attachmentPath, priority, "open", clientId, dueDate],
   );
 
   return {
@@ -34,83 +26,211 @@ const createTicket = async ({
     description,
     attachment_path: attachmentPath,
     priority,
-    status: 'open',
+    status: "open",
     client_id: clientId,
-    sla_due_date: dueDate
+    sla_due_date: dueDate,
   };
 };
 
 // ==============================
-// Get Tickets
+// Get Tickets (Pagination)
 // ==============================
-const getTicketsForUser = async (user) => {
-  let query = `
-    SELECT t.*, c.organization_name
+const getTicketsForUser = async (user, page = 1, limit = 10, search = "") => {
+  const offset = (page - 1) * limit;
+
+  let where = `WHERE t.is_deleted = 0`;
+  const params = [];
+
+  if (user.role === "client") {
+    where += " AND t.client_id = ?";
+    params.push(user.client_id);
+  } else if (user.role === "agent") {
+    where += " AND (t.assigned_agent_id = ? OR t.assigned_agent_id IS NULL)";
+    params.push(user.id);
+  }
+
+  // Search by title or description
+  if (search) {
+    where += `
+    AND t.title LIKE ?
+  `;
+
+    params.push(`%${search}%`);
+  }
+
+  const [countRows] = await pool.execute(
+    `
+      SELECT COUNT(*) AS total
+      FROM tickets t
+      JOIN clients c ON c.id = t.client_id
+      ${where}
+    `,
+    params,
+  );
+
+  const total = countRows[0].total;
+  console.log("SELECT PARAMS =", [...params, Number(limit), Number(offset)]);
+
+  const safeLimit = Number(limit);
+  const safeOffset = Number(offset);
+
+  const [rows] = await pool.execute(
+    `
+    SELECT
+      t.*,
+      c.organization_name
     FROM tickets t
-    JOIN clients c ON c.id = t.client_id
-    WHERE t.is_deleted = 0
+    JOIN clients c
+      ON c.id = t.client_id
+    ${where}
+    ORDER BY t.created_at DESC
+    LIMIT ${safeLimit}
+    OFFSET ${safeOffset}
+  `,
+    params,
+  );
+
+  return {
+    tickets: rows.map((ticket) => ({
+      ...ticket,
+      sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status),
+    })),
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+};
+
+// ==============================
+// Assigned Tickets
+// ==============================
+const getAssignedTickets = async (user, search = "") => {
+  let query = `
+    SELECT
+      t.*,
+      c.organization_name
+    FROM tickets t
+    JOIN clients c
+      ON c.id = t.client_id
+    WHERE
+      t.assigned_agent_id = ?
+      AND t.is_deleted = 0
+  `;
+
+  const params = [user.id];
+
+  if (search) {
+    query += `
+    AND t.title LIKE ?
+  `;
+
+    params.push(`%${search}%`);
+  }
+  query += `
+    ORDER BY t.created_at DESC
+  `;
+
+  const [rows] = await pool.execute(query, params);
+  console.log("AGENT SEARCH =", search);
+  console.log("QUERY =", query);
+  console.log("PARAMS =", params);
+  return rows.map((ticket) => ({
+    ...ticket,
+    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status),
+  }));
+};
+
+// ==============================
+// Unassigned Tickets
+// ==============================
+const getUnassignedTickets = async (search = "") => {
+  let query = `
+    SELECT
+      t.*,
+      c.organization_name
+    FROM tickets t
+    JOIN clients c
+      ON c.id = t.client_id
+    WHERE
+      t.assigned_agent_id IS NULL
+      AND t.is_deleted = 0
   `;
 
   const params = [];
 
-  if (user.role === 'client') {
-    query += ' AND t.client_id = ?';
-    params.push(user.client_id);
-  } else if (user.role === 'agent') {
-    query += ' AND (t.assigned_agent_id = ? OR t.assigned_agent_id IS NULL)';
-    params.push(user.id);
+  // Search by title only
+  if (search) {
+    query += `
+      AND t.title LIKE ?
+    `;
+
+    params.push(`%${search}%`);
   }
 
-  query += ' ORDER BY t.created_at DESC';
+  query += `
+    ORDER BY t.created_at DESC
+  `;
+
+  console.log("AGENT SEARCH =", search);
+  console.log("QUERY =\n", query);
+  console.log("PARAMS =", params);
 
   const [rows] = await pool.execute(query, params);
 
-  return rows.map(ticket => ({
+  return rows.map((ticket) => ({
     ...ticket,
-    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status)
+    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status),
   }));
 };
-
 // ==============================
 // Get Ticket By ID
 // ==============================
 const getTicketById = async (id, user) => {
   const [rows] = await pool.execute(
-    `SELECT t.*, c.organization_name
-     FROM tickets t
-     JOIN clients c ON c.id = t.client_id
-     WHERE t.id = ?
-     AND t.is_deleted = 0`,
-    [id]
+    `
+    SELECT
+      t.*,
+      c.organization_name
+    FROM tickets t
+    JOIN clients c
+      ON c.id = t.client_id
+    WHERE
+      t.id = ?
+      AND t.is_deleted = 0
+    `,
+    [id],
   );
 
   if (!rows.length) {
-    const error = new Error('Ticket not found');
+    const error = new Error("Ticket not found");
     error.statusCode = 404;
     throw error;
   }
 
   const ticket = rows[0];
 
-  if (user.role === 'client' && ticket.client_id !== user.client_id) {
-    const error = new Error('Forbidden');
+  if (user.role === "client" && ticket.client_id !== user.client_id) {
+    const error = new Error("Forbidden");
     error.statusCode = 403;
     throw error;
   }
 
   if (
-    user.role === 'agent' &&
-    ticket.assigned_agent_id !== user.id &&
-    ticket.assigned_agent_id !== null
+    user.role === "agent" &&
+    ticket.assigned_agent_id !== null &&
+    ticket.assigned_agent_id !== user.id
   ) {
-    const error = new Error('Forbidden');
+    const error = new Error("Forbidden");
     error.statusCode = 403;
     throw error;
   }
 
   return {
     ...ticket,
-    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status)
+    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status),
   };
 };
 
@@ -122,23 +242,32 @@ const addComment = async ({
   userId,
   message,
   isInternal = false,
-  attachmentPath = null
+  attachmentPath = null,
 }) => {
-
   // Insert Comment
-  await pool.execute(
-    `INSERT INTO comments
-      (ticket_id, user_id, message, attachment_path, is_internal, created_at)
-     VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())`,
-    [
+  try {
+    console.log("INSERTING COMMENT...");
+    console.log({
       ticketId,
       userId,
       message,
       attachmentPath,
-      isInternal
-    ]
-  );
+      isInternal,
+    });
 
+    await pool.execute(
+      `INSERT INTO comments
+      (ticket_id, user_id, message, attachment_path, is_internal, created_at)
+     VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())`,
+      [ticketId, userId, message, attachmentPath, isInternal],
+    );
+
+    console.log("COMMENT INSERTED");
+  } catch (err) {
+    console.error("INSERT ERROR:");
+    console.error(err);
+    throw err;
+  }
   // Fetch ticket, client and assigned agent details
   const [rows] = await pool.execute(
     `SELECT
@@ -166,11 +295,11 @@ const addComment = async ({
      WHERE t.id = ?
 
      LIMIT 1`,
-    [ticketId]
+    [ticketId],
   );
 
   if (!rows.length) {
-    throw new Error('Ticket not found');
+    throw new Error("Ticket not found");
   }
 
   return {
@@ -185,7 +314,7 @@ const addComment = async ({
     clientEmail: rows[0].clientEmail,
 
     agentName: rows[0].agentName,
-    agentEmail: rows[0].agentEmail
+    agentEmail: rows[0].agentEmail,
   };
 };
 
@@ -202,11 +331,11 @@ const getComments = async (ticketId, user) => {
 
   const params = [ticketId];
 
-  if (user.role === 'client') {
-    query += ' AND c.is_internal = 0';
+  if (user.role === "client") {
+    query += " AND c.is_internal = 0";
   }
 
-  query += ' ORDER BY c.created_at ASC';
+  query += " ORDER BY c.created_at ASC";
 
   const [rows] = await pool.execute(query, params);
 
@@ -217,13 +346,12 @@ const getComments = async (ticketId, user) => {
 // Update Ticket Status
 // ==============================
 const updateTicketStatus = async (id, status) => {
-
   await pool.execute(
     `UPDATE tickets
      SET status = ?,
          updated_at = UTC_TIMESTAMP()
      WHERE id = ?`,
-    [status, id]
+    [status, id],
   );
 
   const [rows] = await pool.execute(
@@ -242,7 +370,7 @@ const updateTicketStatus = async (id, status) => {
         t.id = ?
         AND u.role='client'
      LIMIT 1`,
-    [id]
+    [id],
   );
 
   if (!rows.length) {
@@ -254,7 +382,7 @@ const updateTicketStatus = async (id, status) => {
     title: rows[0].title,
     status: rows[0].status,
     clientName: rows[0].name,
-    clientEmail: rows[0].email
+    clientEmail: rows[0].email,
   };
 };
 
@@ -268,7 +396,7 @@ const assignTicket = async (id, assignedAgentId) => {
      SET assigned_agent_id = ?,
          updated_at = UTC_TIMESTAMP()
      WHERE id = ?`,
-    [assignedAgentId, id]
+    [assignedAgentId, id],
   );
 
   // Fetch agent and ticket details
@@ -285,11 +413,11 @@ const assignTicket = async (id, assignedAgentId) => {
      JOIN users u
        ON t.assigned_agent_id = u.id
      WHERE t.id = ?`,
-    [id]
+    [id],
   );
 
   if (!rows.length) {
-    const error = new Error('Ticket or Agent not found');
+    const error = new Error("Ticket or Agent not found");
     error.statusCode = 404;
     throw error;
   }
@@ -301,7 +429,7 @@ const assignTicket = async (id, assignedAgentId) => {
     agentEmail: rows[0].agentEmail,
     ticketTitle: rows[0].title,
     priority: rows[0].priority,
-    status: rows[0].status
+    status: rows[0].status,
   };
 };
 
@@ -314,12 +442,103 @@ const deleteTicket = async (id) => {
      SET is_deleted = 1,
          updated_at = UTC_TIMESTAMP()
      WHERE id = ?`,
-    [id]
+    [id],
   );
 
   return {
     id,
-    message: 'Ticket deleted successfully'
+    message: "Ticket deleted successfully",
+  };
+};
+
+const getAgentDashboardStats = async (agentId) => {
+  const [[assigned]] = await pool.execute(
+    `
+    SELECT COUNT(*) AS assignedTickets
+    FROM tickets
+    WHERE assigned_agent_id = ?
+      AND is_deleted = 0
+    `,
+    [agentId],
+  );
+
+  const [[pending]] = await pool.execute(
+    `
+    SELECT COUNT(*) AS pendingTickets
+    FROM tickets
+    WHERE assigned_agent_id = ?
+      AND status = 'pending'
+      AND is_deleted = 0
+    `,
+    [agentId],
+  );
+
+  const [[closed]] = await pool.execute(
+    `
+    SELECT COUNT(*) AS closedTickets
+    FROM tickets
+    WHERE assigned_agent_id = ?
+      AND status = 'closed'
+      AND is_deleted = 0
+    `,
+    [agentId],
+  );
+
+  return {
+    assignedTickets: assigned.assignedTickets,
+    pendingTickets: pending.pendingTickets,
+    closedTickets: closed.closedTickets,
+  };
+};
+const getClientDashboardStats = async (clientId) => {
+  const [[total]] = await pool.execute(
+    `
+    SELECT COUNT(*) AS totalTickets
+    FROM tickets
+    WHERE client_id = ?
+      AND is_deleted = 0
+    `,
+    [clientId],
+  );
+
+  const [[open]] = await pool.execute(
+    `
+    SELECT COUNT(*) AS openTickets
+    FROM tickets
+    WHERE client_id = ?
+      AND status = 'open'
+      AND is_deleted = 0
+    `,
+    [clientId],
+  );
+
+  const [[pending]] = await pool.execute(
+    `
+    SELECT COUNT(*) AS pendingTickets
+    FROM tickets
+    WHERE client_id = ?
+      AND status = 'pending'
+      AND is_deleted = 0
+    `,
+    [clientId],
+  );
+
+  const [[closed]] = await pool.execute(
+    `
+    SELECT COUNT(*) AS closedTickets
+    FROM tickets
+    WHERE client_id = ?
+      AND status = 'closed'
+      AND is_deleted = 0
+    `,
+    [clientId],
+  );
+
+  return {
+    totalTickets: total.totalTickets,
+    openTickets: open.openTickets,
+    pendingTickets: pending.pendingTickets,
+    closedTickets: closed.closedTickets,
   };
 };
 
@@ -331,5 +550,9 @@ module.exports = {
   getComments,
   updateTicketStatus,
   assignTicket,
-  deleteTicket
+  deleteTicket,
+  getAssignedTickets,
+  getUnassignedTickets,
+  getAgentDashboardStats,
+  getClientDashboardStats,
 };
