@@ -105,6 +105,23 @@ const DashboardPage = () => {
       ),
     },
     {
+      key: "attachment_path",
+      label: "Attachment",
+      render: (ticket) =>
+        ticket.attachment_path ? (
+          <a
+            href={`http://localhost:5000/uploads/${ticket.attachment_path}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-green-600 hover:underline"
+          >
+            📎 View Attachment
+          </a>
+        ) : (
+          <span className="text-slate-400">No attachment</span>
+        ),
+    },
+    {
       key: "priority",
       label: "Priority",
       render: (ticket) => <span className="capitalize">{ticket.priority}</span>,
