@@ -1,4 +1,5 @@
 require("dotenv").config();
+require("./jobs/slaReminder");
 
 console.log("🚀 SERVER STARTED");
 console.log("SERVER FILE LOADED");
@@ -11,18 +12,14 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
-// Handle Uncaught Exceptions
 process.on("uncaughtException", (err) => {
   console.error("UNCAUGHT EXCEPTION");
   console.error(err);
-
   process.exit(1);
 });
 
-// Handle Unhandled Promise Rejections
 process.on("unhandledRejection", (err) => {
   console.error("UNHANDLED REJECTION");
   console.error(err);
-
   process.exit(1);
 });

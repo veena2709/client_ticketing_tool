@@ -14,7 +14,7 @@ import {
 import Loader from "../components/Loader";
 import StatusBadge from "../components/StatusBadge";
 import Table from "../components/Table/Table";
-import DashboardCard from "../components/DashboardCard";
+import DashboardCard from "../components/dashboardCard";
 import api from "../services/api";
 
 const DashboardPage = () => {

@@ -15,12 +15,20 @@ import AdminClientsPage from "../pages/AdminClientsPage";
 
 import Loader from "../components/Loader";
 
-const ProtectedRoute = ({ children }) => {
+const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
 
   if (loading) return <Loader />;
 
-  return user ? children : <Navigate to="/login" replace />;
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
 };
 
 const HomeRedirect = () => {
@@ -62,15 +70,36 @@ const AppRoutes = () => {
 
         {/* Agent */}
         <Route path="tickets/assigned" element={<AssignedTicketsPage />} />
-        <Route path="tickets/unassigned" element={<UnassignedTicketsPage />} />
+        <Route
+          path="tickets/unassigned"
+          element={
+            <ProtectedRoute allowedRoles={["agent"]}>
+              <UnassignedTicketsPage />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Client */}
         <Route path="tickets/new" element={<TicketFormPage />} />
         <Route path="tickets/:id" element={<TicketDetailsPage />} />
 
         {/* Admin */}
-        <Route path="admin/users" element={<AdminUsersPage />} />
-        <Route path="admin/clients" element={<AdminClientsPage />} />
+        <Route
+          path="admin/users"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminUsersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/clients"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminClientsPage />
+            </ProtectedRoute>
+          }
+        />
       </Route>
 
       {/* Unknown Route */}

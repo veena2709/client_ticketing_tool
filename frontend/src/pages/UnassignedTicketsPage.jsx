@@ -81,11 +81,23 @@ const UnassignedTicketsPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+      <div
+        className="rounded-2xl border border-slate-200 bg-white p-6
+                  dark:border-slate-800 dark:bg-slate-900"
+      >
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold">Unassigned Tickets</h2>
-            <p className="text-sm text-slate-400">
+            <h2
+              className="text-xl font-semibold text-slate-900
+                       dark:text-white"
+            >
+              Unassigned Tickets
+            </h2>
+
+            <p
+              className="text-sm text-slate-600
+                      dark:text-slate-400"
+            >
               View all tickets that are waiting to be assigned.
             </p>
           </div>
@@ -99,18 +111,25 @@ const UnassignedTicketsPage = () => {
           placeholder="Search unassigned tickets..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-white focus:outline-none"
+          className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2
+                 text-slate-900 placeholder-slate-500 focus:outline-none
+                 dark:border-slate-700 dark:bg-slate-900
+                 dark:text-white dark:placeholder-slate-400"
         />
 
         <button
           onClick={() => loadUnassignedTickets(search)}
-          className="rounded-lg bg-cyan-600 px-6 py-2 text-white"
+          className="rounded-lg bg-cyan-600 px-6 py-2 text-white
+                 hover:bg-cyan-700"
         >
           Search
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
+      <div
+        className="overflow-hidden rounded-2xl border border-slate-200 bg-white
+                  dark:border-slate-800 dark:bg-slate-900"
+      >
         <Table columns={columns} data={tickets} />
       </div>
     </div>
