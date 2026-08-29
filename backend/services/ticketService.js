@@ -1,5 +1,5 @@
-const pool = require('../config/database');
-const { calculateSlaDueDate, formatSlaStatus } = require('../utils/sla');
+const pool = require("../config/database");
+const { calculateSlaDueDate, formatSlaStatus } = require("../utils/sla");
 
 // ==============================
 // Create Ticket
@@ -9,7 +9,7 @@ const createTicket = async ({
   description,
   priority,
   clientId,
-  attachmentPath = null
+  attachmentPath = null,
 }) => {
   const dueDate = calculateSlaDueDate(priority);
 
@@ -17,15 +17,7 @@ const createTicket = async ({
     `INSERT INTO tickets
     (title, description, attachment_path, priority, status, client_id, sla_due_date, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP())`,
-    [
-      title,
-      description,
-      attachmentPath,
-      priority,
-      'open',
-      clientId,
-      dueDate
-    ]
+    [title, description, attachmentPath, priority, "open", clientId, dueDate],
   );
 
   return {
@@ -34,18 +26,22 @@ const createTicket = async ({
     description,
     attachment_path: attachmentPath,
     priority,
-    status: 'open',
+    status: "open",
     client_id: clientId,
-    sla_due_date: dueDate
+    sla_due_date: dueDate,
   };
 };
 
 // ==============================
 // Get Tickets
 // ==============================
-const getTicketsForUser = async (user) => {
-  let query = `
-    SELECT t.*, c.organization_name
+const getTicketsForUser = async (user, page = 1, limit = 10) => {
+  page = Math.max(parseInt(page) || 1, 1);
+  limit = Math.min(Math.max(parseInt(limit) || 10, 1), 100);
+
+  const offset = (page - 1) * limit;
+
+  let whereClause = `
     FROM tickets t
     JOIN clients c ON c.id = t.client_id
     WHERE t.is_deleted = 0
@@ -53,22 +49,65 @@ const getTicketsForUser = async (user) => {
 
   const params = [];
 
-  if (user.role === 'client') {
-    query += ' AND t.client_id = ?';
+  console.log("USER:", user);
+  console.log("PAGE:", page);
+  console.log("LIMIT:", limit);
+  console.log("OFFSET:", offset);
+
+  if (user.role === "client") {
+    if (!user.client_id) {
+      throw new Error("Client ID missing from authenticated user");
+    }
+
+    whereClause += " AND t.client_id = ?";
     params.push(user.client_id);
-  } else if (user.role === 'agent') {
-    query += ' AND (t.assigned_agent_id = ? OR t.assigned_agent_id IS NULL)';
+  } else if (user.role === "agent") {
+    if (!user.id) {
+      throw new Error("User ID missing from authenticated user");
+    }
+
+    whereClause +=
+      " AND (t.assigned_agent_id = ? OR t.assigned_agent_id IS NULL)";
+
     params.push(user.id);
   }
 
-  query += ' ORDER BY t.created_at DESC';
+  console.log("COUNT QUERY:", `SELECT COUNT(*) AS total ${whereClause}`);
+  console.log("COUNT PARAMS:", params);
+
+  const [countRows] = await pool.execute(
+    `SELECT COUNT(*) AS total ${whereClause}`,
+    params,
+  );
+
+  const total = countRows[0].total;
+
+  const query = `
+    SELECT t.*, c.organization_name
+    ${whereClause}
+    ORDER BY t.created_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+
+  console.log("TICKET QUERY:", query);
+  console.log("TICKET PARAMS:", params);
 
   const [rows] = await pool.execute(query, params);
 
-  return rows.map(ticket => ({
+  const tickets = rows.map((ticket) => ({
     ...ticket,
-    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status)
+    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status),
   }));
+
+  return {
+    tickets,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
 };
 
 // ==============================
@@ -81,36 +120,36 @@ const getTicketById = async (id, user) => {
      JOIN clients c ON c.id = t.client_id
      WHERE t.id = ?
      AND t.is_deleted = 0`,
-    [id]
+    [id],
   );
 
   if (!rows.length) {
-    const error = new Error('Ticket not found');
+    const error = new Error("Ticket not found");
     error.statusCode = 404;
     throw error;
   }
 
   const ticket = rows[0];
 
-  if (user.role === 'client' && ticket.client_id !== user.client_id) {
-    const error = new Error('Forbidden');
+  if (user.role === "client" && ticket.client_id !== user.client_id) {
+    const error = new Error("Forbidden");
     error.statusCode = 403;
     throw error;
   }
 
   if (
-    user.role === 'agent' &&
+    user.role === "agent" &&
     ticket.assigned_agent_id !== user.id &&
     ticket.assigned_agent_id !== null
   ) {
-    const error = new Error('Forbidden');
+    const error = new Error("Forbidden");
     error.statusCode = 403;
     throw error;
   }
 
   return {
     ...ticket,
-    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status)
+    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status),
   };
 };
 
@@ -122,21 +161,14 @@ const addComment = async ({
   userId,
   message,
   isInternal = false,
-  attachmentPath = null
+  attachmentPath = null,
 }) => {
-
   // Insert Comment
   await pool.execute(
     `INSERT INTO comments
       (ticket_id, user_id, message, attachment_path, is_internal, created_at)
      VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())`,
-    [
-      ticketId,
-      userId,
-      message,
-      attachmentPath,
-      isInternal
-    ]
+    [ticketId, userId, message, attachmentPath, isInternal],
   );
 
   // Fetch ticket, client and assigned agent details
@@ -166,11 +198,11 @@ const addComment = async ({
      WHERE t.id = ?
 
      LIMIT 1`,
-    [ticketId]
+    [ticketId],
   );
 
   if (!rows.length) {
-    throw new Error('Ticket not found');
+    throw new Error("Ticket not found");
   }
 
   return {
@@ -185,7 +217,7 @@ const addComment = async ({
     clientEmail: rows[0].clientEmail,
 
     agentName: rows[0].agentName,
-    agentEmail: rows[0].agentEmail
+    agentEmail: rows[0].agentEmail,
   };
 };
 
@@ -202,11 +234,11 @@ const getComments = async (ticketId, user) => {
 
   const params = [ticketId];
 
-  if (user.role === 'client') {
-    query += ' AND c.is_internal = 0';
+  if (user.role === "client") {
+    query += " AND c.is_internal = 0";
   }
 
-  query += ' ORDER BY c.created_at ASC';
+  query += " ORDER BY c.created_at ASC";
 
   const [rows] = await pool.execute(query, params);
 
@@ -217,13 +249,12 @@ const getComments = async (ticketId, user) => {
 // Update Ticket Status
 // ==============================
 const updateTicketStatus = async (id, status) => {
-
   await pool.execute(
     `UPDATE tickets
      SET status = ?,
          updated_at = UTC_TIMESTAMP()
      WHERE id = ?`,
-    [status, id]
+    [status, id],
   );
 
   const [rows] = await pool.execute(
@@ -242,7 +273,7 @@ const updateTicketStatus = async (id, status) => {
         t.id = ?
         AND u.role='client'
      LIMIT 1`,
-    [id]
+    [id],
   );
 
   if (!rows.length) {
@@ -254,7 +285,7 @@ const updateTicketStatus = async (id, status) => {
     title: rows[0].title,
     status: rows[0].status,
     clientName: rows[0].name,
-    clientEmail: rows[0].email
+    clientEmail: rows[0].email,
   };
 };
 
@@ -268,7 +299,7 @@ const assignTicket = async (id, assignedAgentId) => {
      SET assigned_agent_id = ?,
          updated_at = UTC_TIMESTAMP()
      WHERE id = ?`,
-    [assignedAgentId, id]
+    [assignedAgentId, id],
   );
 
   // Fetch agent and ticket details
@@ -285,11 +316,11 @@ const assignTicket = async (id, assignedAgentId) => {
      JOIN users u
        ON t.assigned_agent_id = u.id
      WHERE t.id = ?`,
-    [id]
+    [id],
   );
 
   if (!rows.length) {
-    const error = new Error('Ticket or Agent not found');
+    const error = new Error("Ticket or Agent not found");
     error.statusCode = 404;
     throw error;
   }
@@ -301,7 +332,7 @@ const assignTicket = async (id, assignedAgentId) => {
     agentEmail: rows[0].agentEmail,
     ticketTitle: rows[0].title,
     priority: rows[0].priority,
-    status: rows[0].status
+    status: rows[0].status,
   };
 };
 
@@ -314,12 +345,12 @@ const deleteTicket = async (id) => {
      SET is_deleted = 1,
          updated_at = UTC_TIMESTAMP()
      WHERE id = ?`,
-    [id]
+    [id],
   );
 
   return {
     id,
-    message: 'Ticket deleted successfully'
+    message: "Ticket deleted successfully",
   };
 };
 
@@ -331,5 +362,5 @@ module.exports = {
   getComments,
   updateTicketStatus,
   assignTicket,
-  deleteTicket
+  deleteTicket,
 };

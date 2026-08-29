@@ -1,9 +1,9 @@
-require('dotenv').config();
-
-const app = require('./app');
+require("dotenv").config();
+console.log("🔥 SERVER IS LOADING APP FROM:", require.resolve("./app"));
+const app = require("./app");
 
 // Start SLA Reminder Job
-require('./jobs/slaReminder');
+require("./jobs/slaReminder");
 
 const PORT = process.env.PORT || 5000;
 

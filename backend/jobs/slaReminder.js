@@ -1,15 +1,13 @@
-const cron = require('node-cron');
-const pool = require('../config/database');
-const { sendEmail } = require('../utils/email');
+const cron = require("node-cron");
+const pool = require("../config/database");
+const { sendEmail } = require("../utils/email");
 
-console.log('SLA Reminder Job Started');
+console.log("SLA Reminder Job Started");
 
-cron.schedule('*/5 * * * *', async () => {
-  console.log('Checking SLA tickets...');
-
+cron.schedule("*/5 * * * *", async () => {
   try {
     const [tickets] = await pool.execute(`
-      SELECT
+      SELECT 
         t.id,
         t.title,
         t.priority,
@@ -18,12 +16,13 @@ cron.schedule('*/5 * * * *', async () => {
         u.name AS agentName,
         u.email AS agentEmail
       FROM tickets t
-      JOIN users u
+      JOIN users u 
         ON t.assigned_agent_id = u.id
       WHERE
         t.status = 'open'
         AND t.assigned_agent_id IS NOT NULL
         AND t.sla_due_date <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 1 HOUR)
+        AND t.sla_reminder_sent_at IS NULL
     `);
 
     for (const ticket of tickets) {
@@ -49,14 +48,18 @@ cron.schedule('*/5 * * * *', async () => {
           <br>
 
           <p>Support Ticketing System</p>
-        `
+        `,
       });
 
-      console.log(
-        `Reminder sent for Ticket ${ticket.id} -> ${ticket.agentEmail}`
+      // Mark reminder as sent
+      await pool.execute(
+        `UPDATE tickets
+         SET sla_reminder_sent_at = UTC_TIMESTAMP()
+         WHERE id = ?`,
+        [ticket.id],
       );
     }
   } catch (err) {
-    console.error(err);
+    console.error("SLA Reminder Error:", err);
   }
 });

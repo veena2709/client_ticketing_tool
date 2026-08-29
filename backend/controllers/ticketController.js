@@ -1,5 +1,5 @@
-const { sendResponse } = require('../utils/response');
-const { sendEmail } = require('../utils/email');
+const { sendResponse } = require("../utils/response");
+const { sendEmail } = require("../utils/email");
 
 const {
   createTicket,
@@ -9,8 +9,8 @@ const {
   getComments,
   updateTicketStatus,
   assignTicket,
-  deleteTicket
-} = require('../services/ticketService');
+  deleteTicket,
+} = require("../services/ticketService");
 
 // ==============================
 // Create Ticket
@@ -19,7 +19,7 @@ const create = async (req, res) => {
   try {
     if (!req.user.client_id) {
       const error = new Error(
-        'User must have a client organization to create tickets'
+        "User must have a client organization to create tickets",
       );
       error.statusCode = 400;
       throw error;
@@ -30,7 +30,7 @@ const create = async (req, res) => {
       description: req.body.description,
       priority: req.body.priority,
       clientId: req.user.client_id,
-      attachmentPath: req.file ? req.file.filename : null
+      attachmentPath: req.file ? req.file.filename : null,
     });
 
     // Send confirmation email
@@ -54,23 +54,17 @@ const create = async (req, res) => {
 
         <p>Thank you,</p>
         <b>Support Ticket Team</b>
-      `
+      `,
     });
 
-    return sendResponse(
-      res,
-      201,
-      true,
-      ticket,
-      'Ticket created successfully'
-    );
+    return sendResponse(res, 201, true, ticket, "Ticket created successfully");
   } catch (error) {
     return sendResponse(
       res,
       error.statusCode || 500,
       false,
       null,
-      error.message || 'Failed to create ticket'
+      error.message || "Failed to create ticket",
     );
   }
 };
@@ -80,22 +74,25 @@ const create = async (req, res) => {
 // ==============================
 const list = async (req, res) => {
   try {
-    const tickets = await getTicketsForUser(req.user);
+    const page = req.query.page || 1;
+    const limit = req.query.limit || 10;
+
+    const tickets = await getTicketsForUser(req.user, page, limit);
 
     return sendResponse(
       res,
       200,
       true,
       tickets,
-      'Tickets retrieved successfully'
+      "Tickets retrieved successfully",
     );
   } catch (error) {
     return sendResponse(
       res,
-      500,
+      error.statusCode || 500,
       false,
       null,
-      error.message || 'Failed to retrieve tickets'
+      error.message || "Failed to retrieve tickets",
     );
   }
 };
@@ -114,9 +111,9 @@ const detail = async (req, res) => {
       true,
       {
         ticket,
-        comments
+        comments,
       },
-      'Ticket retrieved successfully'
+      "Ticket retrieved successfully",
     );
   } catch (error) {
     return sendResponse(
@@ -124,11 +121,10 @@ const detail = async (req, res) => {
       error.statusCode || 500,
       false,
       null,
-      error.message || 'Failed to retrieve ticket'
+      error.message || "Failed to retrieve ticket",
     );
   }
 };
-
 
 // ==============================
 // Reply to Ticket
@@ -140,11 +136,11 @@ const reply = async (req, res) => {
       userId: req.user.id,
       message: req.body.message,
       isInternal: false,
-      attachmentPath: req.file ? req.file.filename : null
+      attachmentPath: req.file ? req.file.filename : null,
     });
 
     // Send email notification
-    if (req.user.role === 'client') {
+    if (req.user.role === "client") {
       // Client replied → notify assigned agent
       if (comment.agentEmail) {
         await sendEmail({
@@ -181,10 +177,10 @@ const reply = async (req, res) => {
 
               <strong>Support Ticket Team</strong>
             </div>
-          `
+          `,
         });
       }
-    } else if (req.user.role === 'agent') {
+    } else if (req.user.role === "agent") {
       // Agent replied → notify client
       if (comment.clientEmail) {
         await sendEmail({
@@ -221,26 +217,19 @@ const reply = async (req, res) => {
 
               <strong>Support Ticket Team</strong>
             </div>
-          `
+          `,
         });
       }
     }
 
-    return sendResponse(
-      res,
-      201,
-      true,
-      comment,
-      'Reply added successfully'
-    );
-
+    return sendResponse(res, 201, true, comment, "Reply added successfully");
   } catch (error) {
     return sendResponse(
       res,
       error.statusCode || 500,
       false,
       null,
-      error.message || 'Failed to add reply'
+      error.message || "Failed to add reply",
     );
   }
 };
@@ -254,7 +243,7 @@ const internalNote = async (req, res) => {
       userId: req.user.id,
       message: req.body.message,
       isInternal: true,
-      attachmentPath: req.file ? req.file.filename : null
+      attachmentPath: req.file ? req.file.filename : null,
     });
 
     return sendResponse(
@@ -262,7 +251,7 @@ const internalNote = async (req, res) => {
       201,
       true,
       comment,
-      'Internal note added successfully'
+      "Internal note added successfully",
     );
   } catch (error) {
     return sendResponse(
@@ -270,7 +259,7 @@ const internalNote = async (req, res) => {
       500,
       false,
       null,
-      error.message || 'Failed to add note'
+      error.message || "Failed to add note",
     );
   }
 };
@@ -283,10 +272,7 @@ const internalNote = async (req, res) => {
 // ==============================
 const status = async (req, res) => {
   try {
-    const result = await updateTicketStatus(
-      req.params.id,
-      req.body.status
-    );
+    const result = await updateTicketStatus(req.params.id, req.body.status);
 
     // Send Status Update Email
     await sendEmail({
@@ -309,24 +295,17 @@ const status = async (req, res) => {
 
         <p>Regards,<br>
         <strong>Support Ticket Team</strong></p>
-      `
+      `,
     });
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      result,
-      'Status updated successfully'
-    );
-
+    return sendResponse(res, 200, true, result, "Status updated successfully");
   } catch (error) {
     return sendResponse(
       res,
       500,
       false,
       null,
-      error.message || 'Failed to update status'
+      error.message || "Failed to update status",
     );
   }
 };
@@ -341,7 +320,7 @@ const assign = async (req, res) => {
   try {
     const result = await assignTicket(
       req.params.id,
-      req.body.assigned_agent_id
+      req.body.assigned_agent_id,
     );
 
     // Send email to assigned agent
@@ -384,26 +363,19 @@ const assign = async (req, res) => {
           <p>Regards,</p>
           <strong>Support Ticket Team</strong>
         </div>
-      `
+      `,
     });
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      result,
-      'Ticket assigned successfully'
-    );
-
+    return sendResponse(res, 200, true, result, "Ticket assigned successfully");
   } catch (error) {
-    console.error('Assignment Error:', error);
+    console.error("Assignment Error:", error);
 
     return sendResponse(
       res,
       error.statusCode || 500,
       false,
       null,
-      error.message || 'Failed to assign ticket'
+      error.message || "Failed to assign ticket",
     );
   }
 };
@@ -415,20 +387,14 @@ const remove = async (req, res) => {
   try {
     const result = await deleteTicket(req.params.id);
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      result,
-      'Ticket deleted successfully'
-    );
+    return sendResponse(res, 200, true, result, "Ticket deleted successfully");
   } catch (error) {
     return sendResponse(
       res,
       500,
       false,
       null,
-      error.message || 'Failed to delete ticket'
+      error.message || "Failed to delete ticket",
     );
   }
 };
@@ -441,5 +407,5 @@ module.exports = {
   internalNote,
   status,
   assign,
-  remove
+  remove,
 };

@@ -4,9 +4,12 @@ USE support_ticketing;
 CREATE TABLE IF NOT EXISTS clients (
   id INT AUTO_INCREMENT PRIMARY KEY,
   organization_name VARCHAR(255) NOT NULL,
+  is_deleted TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_clients_org (organization_name)
+
+  INDEX idx_clients_org (organization_name),
+  INDEX idx_clients_deleted (is_deleted)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -34,7 +37,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   sla_due_date DATETIME NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
+  FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
   FOREIGN KEY (assigned_agent_id) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_tickets_status (status),
   INDEX idx_tickets_priority (priority),
