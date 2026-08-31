@@ -15,8 +15,9 @@ const createTicket = async ({
 
   const [result] = await pool.execute(
     `INSERT INTO tickets
-    (title, description, attachment_path, priority, status, client_id, sla_due_date, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP())`,
+     (title, description, attachment_path, priority, status,
+      client_id, sla_due_date, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP())`,
     [title, description, attachmentPath, priority, "open", clientId, dueDate],
   );
 
@@ -33,77 +34,94 @@ const createTicket = async ({
 };
 
 // ==============================
-// Get Tickets
+// Get Tickets - Pagination + Search
 // ==============================
-const getTicketsForUser = async (user, page = 1, limit = 10) => {
+const getTicketsForUser = async (user, page = 1, limit = 10, search = "") => {
   page = Math.max(parseInt(page) || 1, 1);
   limit = Math.min(Math.max(parseInt(limit) || 10, 1), 100);
 
   const offset = (page - 1) * limit;
 
-  let whereClause = `
-    FROM tickets t
-    JOIN clients c ON c.id = t.client_id
-    WHERE t.is_deleted = 0
-  `;
-
+  let where = `WHERE t.is_deleted = 0`;
   const params = [];
 
-  console.log("USER:", user);
-  console.log("PAGE:", page);
-  console.log("LIMIT:", limit);
-  console.log("OFFSET:", offset);
-
+  // Client sees only their organization's tickets
   if (user.role === "client") {
     if (!user.client_id) {
       throw new Error("Client ID missing from authenticated user");
     }
 
-    whereClause += " AND t.client_id = ?";
+    where += " AND t.client_id = ?";
     params.push(user.client_id);
-  } else if (user.role === "agent") {
+  }
+
+  // Agent sees assigned tickets + unassigned tickets
+  else if (user.role === "agent") {
     if (!user.id) {
       throw new Error("User ID missing from authenticated user");
     }
 
-    whereClause +=
-      " AND (t.assigned_agent_id = ? OR t.assigned_agent_id IS NULL)";
+    where += " AND (t.assigned_agent_id = ? OR t.assigned_agent_id IS NULL)";
 
     params.push(user.id);
   }
 
-  console.log("COUNT QUERY:", `SELECT COUNT(*) AS total ${whereClause}`);
-  console.log("COUNT PARAMS:", params);
+  // Search by title or description
+  if (search) {
+    where += `
+      AND (
+        t.title LIKE ?
+        OR t.description LIKE ?
+      )
+    `;
 
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+  }
+
+  // Count total matching tickets
   const [countRows] = await pool.execute(
-    `SELECT COUNT(*) AS total ${whereClause}`,
+    `
+      SELECT COUNT(*) AS total
+      FROM tickets t
+      JOIN clients c
+        ON c.id = t.client_id
+      ${where}
+    `,
     params,
   );
 
-  const total = countRows[0].total;
+  const total = Number(countRows[0].total);
 
-  const query = `
-    SELECT t.*, c.organization_name
-    ${whereClause}
-    ORDER BY t.created_at DESC
-    LIMIT ${limit} OFFSET ${offset}
-  `;
+  const safeLimit = Number(limit);
+  const safeOffset = Number(offset);
 
-  console.log("TICKET QUERY:", query);
-  console.log("TICKET PARAMS:", params);
-
-  const [rows] = await pool.execute(query, params);
-
-  const tickets = rows.map((ticket) => ({
-    ...ticket,
-    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status),
-  }));
+  // Get paginated tickets
+  const [rows] = await pool.execute(
+    `
+      SELECT
+        t.*,
+        c.organization_name
+      FROM tickets t
+      JOIN clients c
+        ON c.id = t.client_id
+      ${where}
+      ORDER BY t.created_at DESC
+      LIMIT ${safeLimit}
+      OFFSET ${safeOffset}
+    `,
+    params,
+  );
 
   return {
-    tickets,
+    tickets: rows.map((ticket) => ({
+      ...ticket,
+      sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status),
+    })),
+
     pagination: {
-      page,
-      limit,
+      page: Number(page),
+      limit: Number(limit),
       total,
       totalPages: Math.ceil(total / limit),
     },
@@ -111,15 +129,105 @@ const getTicketsForUser = async (user, page = 1, limit = 10) => {
 };
 
 // ==============================
+// Assigned Tickets
+// ==============================
+const getAssignedTickets = async (user, search = "") => {
+  let query = `
+    SELECT
+      t.*,
+      c.organization_name
+    FROM tickets t
+    JOIN clients c
+      ON c.id = t.client_id
+    WHERE
+      t.assigned_agent_id = ?
+      AND t.is_deleted = 0
+  `;
+
+  const params = [user.id];
+
+  if (search) {
+    query += `
+      AND (
+        t.title LIKE ?
+        OR t.description LIKE ?
+      )
+    `;
+
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+  }
+
+  query += `
+    ORDER BY t.created_at DESC
+  `;
+
+  const [rows] = await pool.execute(query, params);
+
+  return rows.map((ticket) => ({
+    ...ticket,
+    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status),
+  }));
+};
+
+// ==============================
+// Unassigned Tickets
+// ==============================
+const getUnassignedTickets = async (search = "") => {
+  let query = `
+    SELECT
+      t.*,
+      c.organization_name
+    FROM tickets t
+    JOIN clients c
+      ON c.id = t.client_id
+    WHERE
+      t.assigned_agent_id IS NULL
+      AND t.is_deleted = 0
+  `;
+
+  const params = [];
+
+  if (search) {
+    query += `
+      AND (
+        t.title LIKE ?
+        OR t.description LIKE ?
+      )
+    `;
+
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+  }
+
+  query += `
+    ORDER BY t.created_at DESC
+  `;
+
+  const [rows] = await pool.execute(query, params);
+
+  return rows.map((ticket) => ({
+    ...ticket,
+    sla_status: formatSlaStatus(ticket.sla_due_date, ticket.status),
+  }));
+};
+
+// ==============================
 // Get Ticket By ID
 // ==============================
 const getTicketById = async (id, user) => {
   const [rows] = await pool.execute(
-    `SELECT t.*, c.organization_name
-     FROM tickets t
-     JOIN clients c ON c.id = t.client_id
-     WHERE t.id = ?
-     AND t.is_deleted = 0`,
+    `
+      SELECT
+        t.*,
+        c.organization_name
+      FROM tickets t
+      JOIN clients c
+        ON c.id = t.client_id
+      WHERE
+        t.id = ?
+        AND t.is_deleted = 0
+    `,
     [id],
   );
 
@@ -131,16 +239,19 @@ const getTicketById = async (id, user) => {
 
   const ticket = rows[0];
 
+  // Client can only view their own organization's tickets
   if (user.role === "client" && ticket.client_id !== user.client_id) {
     const error = new Error("Forbidden");
     error.statusCode = 403;
     throw error;
   }
 
+  // Agent can view assigned tickets
+  // or currently unassigned tickets
   if (
     user.role === "agent" &&
-    ticket.assigned_agent_id !== user.id &&
-    ticket.assigned_agent_id !== null
+    ticket.assigned_agent_id !== null &&
+    Number(ticket.assigned_agent_id) !== Number(user.id)
   ) {
     const error = new Error("Forbidden");
     error.statusCode = 403;
@@ -163,41 +274,43 @@ const addComment = async ({
   isInternal = false,
   attachmentPath = null,
 }) => {
-  // Insert Comment
   await pool.execute(
     `INSERT INTO comments
-      (ticket_id, user_id, message, attachment_path, is_internal, created_at)
+     (ticket_id, user_id, message, attachment_path,
+      is_internal, created_at)
      VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())`,
     [ticketId, userId, message, attachmentPath, isInternal],
   );
 
   // Fetch ticket, client and assigned agent details
   const [rows] = await pool.execute(
-    `SELECT
+    `
+      SELECT
         t.id,
         t.title,
 
-        client.name  AS clientName,
+        client.name AS clientName,
         client.email AS clientEmail,
 
-        agent.name   AS agentName,
-        agent.email  AS agentEmail
+        agent.name AS agentName,
+        agent.email AS agentEmail
 
-     FROM tickets t
+      FROM tickets t
 
-     JOIN clients c
-       ON t.client_id = c.id
+      JOIN clients c
+        ON t.client_id = c.id
 
-     LEFT JOIN users client
-       ON client.client_id = c.id
-      AND client.role = 'client'
+      LEFT JOIN users client
+        ON client.client_id = c.id
+        AND client.role = 'client'
 
-     LEFT JOIN users agent
-       ON agent.id = t.assigned_agent_id
+      LEFT JOIN users agent
+        ON agent.id = t.assigned_agent_id
 
-     WHERE t.id = ?
+      WHERE t.id = ?
 
-     LIMIT 1`,
+      LIMIT 1
+    `,
     [ticketId],
   );
 
@@ -226,14 +339,18 @@ const addComment = async ({
 // ==============================
 const getComments = async (ticketId, user) => {
   let query = `
-    SELECT c.*, u.name
+    SELECT
+      c.*,
+      u.name
     FROM comments c
-    JOIN users u ON u.id = c.user_id
+    JOIN users u
+      ON u.id = c.user_id
     WHERE c.ticket_id = ?
   `;
 
   const params = [ticketId];
 
+  // Clients must never see internal notes
   if (user.role === "client") {
     query += " AND c.is_internal = 0";
   }
@@ -248,36 +365,92 @@ const getComments = async (ticketId, user) => {
 // ==============================
 // Update Ticket Status
 // ==============================
-const updateTicketStatus = async (id, status) => {
+const updateTicketStatus = async (id, status, user) => {
+  // Find ticket
+  const [ticketRows] = await pool.execute(
+    `
+      SELECT
+        t.id,
+        t.title,
+        t.status,
+        t.client_id,
+        t.assigned_agent_id
+      FROM tickets t
+      WHERE
+        t.id = ?
+        AND t.is_deleted = 0
+      LIMIT 1
+    `,
+    [id],
+  );
+
+  if (!ticketRows.length) {
+    const error = new Error("Ticket not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const ticket = ticketRows[0];
+
+  // Only admin or agent can change status
+  if (user.role !== "admin" && user.role !== "agent") {
+    const error = new Error("Only admin or agent can change ticket status");
+
+    error.statusCode = 403;
+    throw error;
+  }
+
+  // Agent can update only assigned tickets
+  if (
+    user.role === "agent" &&
+    Number(ticket.assigned_agent_id) !== Number(user.id)
+  ) {
+    const error = new Error("You are not authorized to update this ticket");
+
+    error.statusCode = 403;
+    throw error;
+  }
+
+  // Update status
   await pool.execute(
-    `UPDATE tickets
-     SET status = ?,
-         updated_at = UTC_TIMESTAMP()
-     WHERE id = ?`,
+    `
+      UPDATE tickets
+      SET
+        status = ?,
+        updated_at = UTC_TIMESTAMP()
+      WHERE
+        id = ?
+        AND is_deleted = 0
+    `,
     [status, id],
   );
 
+  // Get client details for notification
   const [rows] = await pool.execute(
-    `SELECT
+    `
+      SELECT
         t.id,
         t.title,
         t.status,
         u.name,
         u.email
-     FROM tickets t
-     JOIN clients c
+      FROM tickets t
+      JOIN clients c
         ON t.client_id = c.id
-     JOIN users u
+      JOIN users u
         ON u.client_id = c.id
-     WHERE
+      WHERE
         t.id = ?
-        AND u.role='client'
-     LIMIT 1`,
+        AND u.role = 'client'
+      LIMIT 1
+    `,
     [id],
   );
 
   if (!rows.length) {
-    throw new Error("Client not found");
+    const error = new Error("Client not found");
+    error.statusCode = 404;
+    throw error;
   }
 
   return {
@@ -293,34 +466,90 @@ const updateTicketStatus = async (id, status) => {
 // Assign Ticket
 // ==============================
 const assignTicket = async (id, assignedAgentId) => {
+  // Verify selected user is an Agent
+  const [agents] = await pool.execute(
+    `
+      SELECT
+        id,
+        name,
+        email
+      FROM users
+      WHERE
+        id = ?
+        AND role = 'agent'
+    `,
+    [assignedAgentId],
+  );
+
+  if (!agents.length) {
+    const error = new Error("Selected user is not a valid agent");
+
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Verify ticket exists
+  const [tickets] = await pool.execute(
+    `
+      SELECT id
+      FROM tickets
+      WHERE
+        id = ?
+        AND is_deleted = 0
+    `,
+    [id],
+  );
+
+  if (!tickets.length) {
+    const error = new Error("Ticket not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
   // Update assignment
   await pool.execute(
-    `UPDATE tickets
-     SET assigned_agent_id = ?,
-         updated_at = UTC_TIMESTAMP()
-     WHERE id = ?`,
+    `
+      UPDATE tickets
+      SET
+        assigned_agent_id = ?,
+        updated_at = UTC_TIMESTAMP()
+      WHERE
+        id = ?
+        AND is_deleted = 0
+    `,
     [assignedAgentId, id],
   );
 
-  // Fetch agent and ticket details
+  // Fetch updated ticket + agent
   const [rows] = await pool.execute(
-    `SELECT
+    `
+      SELECT
         t.id,
         t.title,
         t.priority,
         t.status,
+
         u.id AS agentId,
         u.name AS agentName,
         u.email AS agentEmail
-     FROM tickets t
-     JOIN users u
-       ON t.assigned_agent_id = u.id
-     WHERE t.id = ?`,
+
+      FROM tickets t
+
+      JOIN users u
+        ON t.assigned_agent_id = u.id
+
+      WHERE
+        t.id = ?
+        AND u.role = 'agent'
+
+      LIMIT 1
+    `,
     [id],
   );
 
   if (!rows.length) {
     const error = new Error("Ticket or Agent not found");
+
     error.statusCode = 404;
     throw error;
   }
@@ -340,13 +569,24 @@ const assignTicket = async (id, assignedAgentId) => {
 // Soft Delete Ticket
 // ==============================
 const deleteTicket = async (id) => {
-  await pool.execute(
-    `UPDATE tickets
-     SET is_deleted = 1,
-         updated_at = UTC_TIMESTAMP()
-     WHERE id = ?`,
+  const [result] = await pool.execute(
+    `
+      UPDATE tickets
+      SET
+        is_deleted = 1,
+        updated_at = UTC_TIMESTAMP()
+      WHERE
+        id = ?
+        AND is_deleted = 0
+    `,
     [id],
   );
+
+  if (result.affectedRows === 0) {
+    const error = new Error("Ticket not found");
+    error.statusCode = 404;
+    throw error;
+  }
 
   return {
     id,
@@ -354,6 +594,114 @@ const deleteTicket = async (id) => {
   };
 };
 
+// ==============================
+// Agent Dashboard Stats
+// ==============================
+const getAgentDashboardStats = async (agentId) => {
+  const [[assigned]] = await pool.execute(
+    `
+      SELECT COUNT(*) AS assignedTickets
+      FROM tickets
+      WHERE
+        assigned_agent_id = ?
+        AND is_deleted = 0
+    `,
+    [agentId],
+  );
+
+  const [[pending]] = await pool.execute(
+    `
+      SELECT COUNT(*) AS pendingTickets
+      FROM tickets
+      WHERE
+        assigned_agent_id = ?
+        AND status = 'pending'
+        AND is_deleted = 0
+    `,
+    [agentId],
+  );
+
+  const [[closed]] = await pool.execute(
+    `
+      SELECT COUNT(*) AS closedTickets
+      FROM tickets
+      WHERE
+        assigned_agent_id = ?
+        AND status = 'closed'
+        AND is_deleted = 0
+    `,
+    [agentId],
+  );
+
+  return {
+    assignedTickets: assigned.assignedTickets,
+    pendingTickets: pending.pendingTickets,
+    closedTickets: closed.closedTickets,
+  };
+};
+
+// ==============================
+// Client Dashboard Stats
+// ==============================
+const getClientDashboardStats = async (clientId) => {
+  const [[total]] = await pool.execute(
+    `
+      SELECT COUNT(*) AS totalTickets
+      FROM tickets
+      WHERE
+        client_id = ?
+        AND is_deleted = 0
+    `,
+    [clientId],
+  );
+
+  const [[open]] = await pool.execute(
+    `
+      SELECT COUNT(*) AS openTickets
+      FROM tickets
+      WHERE
+        client_id = ?
+        AND status = 'open'
+        AND is_deleted = 0
+    `,
+    [clientId],
+  );
+
+  const [[pending]] = await pool.execute(
+    `
+      SELECT COUNT(*) AS pendingTickets
+      FROM tickets
+      WHERE
+        client_id = ?
+        AND status = 'pending'
+        AND is_deleted = 0
+    `,
+    [clientId],
+  );
+
+  const [[closed]] = await pool.execute(
+    `
+      SELECT COUNT(*) AS closedTickets
+      FROM tickets
+      WHERE
+        client_id = ?
+        AND status = 'closed'
+        AND is_deleted = 0
+    `,
+    [clientId],
+  );
+
+  return {
+    totalTickets: total.totalTickets,
+    openTickets: open.openTickets,
+    pendingTickets: pending.pendingTickets,
+    closedTickets: closed.closedTickets,
+  };
+};
+
+// ==============================
+// EXPORTS
+// ==============================
 module.exports = {
   createTicket,
   getTicketsForUser,
@@ -363,4 +711,8 @@ module.exports = {
   updateTicketStatus,
   assignTicket,
   deleteTicket,
+  getAssignedTickets,
+  getUnassignedTickets,
+  getAgentDashboardStats,
+  getClientDashboardStats,
 };

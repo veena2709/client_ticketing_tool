@@ -5,9 +5,13 @@ const { sendEmail } = require("../utils/email");
 
 const signup = async (req, res) => {
   try {
+    console.log("Signup request body:", req.body);
+
     const errors = validationResult(req);
 
     if (!errors.isEmpty()) {
+      console.log("Validation errors:", errors.array());
+
       return sendResponse(
         res,
         400,
@@ -59,6 +63,8 @@ const signup = async (req, res) => {
 };
 
 const login = async (req, res) => {
+  console.log("LOGIN API CALLED");
+
   try {
     const errors = validationResult(req);
 
@@ -80,6 +86,7 @@ const login = async (req, res) => {
 
     return sendResponse(res, 200, true, result, "Login successful");
   } catch (error) {
+    console.error("========== LOGIN ERROR ==========");
     console.error(error);
 
     return sendResponse(

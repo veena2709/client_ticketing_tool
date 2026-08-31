@@ -1,17 +1,23 @@
 const express = require("express");
+
 console.log("🔥 TICKET ROUTES FILE LOADED");
+
 const router = express.Router();
 const upload = require("../middlewares/upload");
 
 const {
   create,
   list,
+  assignedTickets,
+  unassignedTickets,
   detail,
   reply,
   internalNote,
   status,
   assign,
   remove,
+  agentDashboard,
+  clientDashboard,
 } = require("../controllers/ticketController");
 
 const { authenticate, authorize } = require("../middlewares/auth");
@@ -43,9 +49,54 @@ router.post(
 router.get("/", authenticate, authorize("client", "agent", "admin"), list);
 
 // =============================
+// Agent Dashboard
+// =============================
+router.get(
+  "/dashboard",
+  authenticate,
+  authorize("agent"),
+  agentDashboard,
+);
+
+// =============================
+// Client Dashboard
+// =============================
+router.get(
+  "/client-dashboard",
+  authenticate,
+  authorize("client"),
+  clientDashboard,
+);
+
+// =============================
+// Assigned Tickets
+// =============================
+router.get(
+  "/assigned",
+  authenticate,
+  authorize("agent"),
+  assignedTickets,
+);
+
+// =============================
+// Unassigned Tickets
+// =============================
+router.get(
+  "/unassigned",
+  authenticate,
+  authorize("agent"),
+  unassignedTickets,
+);
+
+// =============================
 // Get Ticket Details
 // =============================
-router.get("/:id", authenticate, authorize("client", "agent", "admin"), detail);
+router.get(
+  "/:id",
+  authenticate,
+  authorize("client", "agent", "admin"),
+  detail,
+);
 
 // =============================
 // Reply to Ticket
@@ -76,7 +127,12 @@ router.post(
 // =============================
 // Update Ticket Status
 // =============================
-router.patch("/:id/status", authenticate, authorize("agent", "admin"), status);
+router.patch(
+  "/:id/status",
+  authenticate,
+  authorize("agent", "admin"),
+  status,
+);
 
 // =============================
 // Assign Ticket
@@ -85,17 +141,19 @@ router.patch(
   "/:id/assign",
   authenticate,
   authorize("admin"),
-  (req, res, next) => {
-    console.log("🔥 ASSIGN ROUTE REACHED");
-    console.log("🔥 BODY INSIDE ROUTE:", req.body);
-    next();
-  },
+  assignValidation,
+  validateRequest,
   assign,
 );
 
 // =============================
 // Soft Delete Ticket
 // =============================
-router.delete("/:id", authenticate, authorize("admin"), remove);
+router.delete(
+  "/:id",
+  authenticate,
+  authorize("admin"),
+  remove,
+);
 
 module.exports = router;

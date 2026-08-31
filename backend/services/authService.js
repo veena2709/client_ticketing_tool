@@ -2,6 +2,9 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const pool = require("../config/database");
 
+// ==========================
+// Register User
+// ==========================
 const registerUser = async ({
   name,
   email,
@@ -58,6 +61,9 @@ const registerUser = async ({
   };
 };
 
+// ==========================
+// Login User
+// ==========================
 const loginUser = async ({ email, password }) => {
   // Trim and normalize inputs
   email = email.trim().toLowerCase();
